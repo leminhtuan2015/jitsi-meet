@@ -5,14 +5,12 @@ import { NativeModules, NativeEventEmitter } from 'react-native';
 
 import { MiddlewareRegistry } from '../../base/redux';
 import { APP_WILL_MOUNT, APP_WILL_UNMOUNT } from '../../app';
-import { getInviteURL } from '../../base/connection';
 import {
     getInviteResultsForQuery,
     isAddPeopleEnabled,
     isDialOutEnabled,
     sendInvitesForItems
 } from '../../invite';
-import { inviteVideoRooms } from '../../videosipgw';
 
 import { sendInviteSuccess, sendInviteFailure } from './actions';
 import {
@@ -89,7 +87,19 @@ function _appWillMount({ dispatch, getState }, next, action) {
             context),
         emitter.addListener(
             'performSubmitInviteAction',
-            _onPerformSubmitInviteAction,
+            ({ selectedItems, inviteScope }) => {
+                dispatch(sendInvitesForItems(selectedItems))
+                    .then(invitesLeftToSend => {
+                        if (invitesLeftToSend.length) {
+                            dispatch(
+                                sendInviteFailure(
+                                    invitesLeftToSend,
+                                    inviteScope));
+                        } else {
+                            dispatch(sendInviteSuccess(inviteScope));
+                        }
+                    });
+            },
             context)
     ];
 
@@ -198,36 +208,5 @@ function _onPerformQueryAction({ query, inviteScope }) {
                 translatedResults,
                 query,
                 inviteScope);
-        });
-}
-
-/**
- * Handles InviteSearch's event {@code performSubmitInviteAction}.
- *
- * @param {Object} event - The details of the InviteSearch event.
- * @returns {void}
- */
-function _onPerformSubmitInviteAction({ selectedItems, inviteScope }) {
-    const { dispatch, getState } = this; // eslint-disable-line no-invalid-this
-    const state = getState();
-    const { conference } = state['features/base/conference'];
-    const {
-        inviteServiceUrl
-    } = state['features/base/config'];
-    const options = {
-        conference,
-        inviteServiceUrl,
-        inviteUrl: getInviteURL(state),
-        inviteVideoRooms,
-        jwt: state['features/base/jwt'].jwt
-    };
-
-    sendInvitesForItems(selectedItems, options)
-        .then(invitesLeftToSend => {
-            if (invitesLeftToSend.length) {
-                dispatch(sendInviteFailure(invitesLeftToSend, inviteScope));
-            } else {
-                dispatch(sendInviteSuccess(inviteScope));
-            }
         });
 }

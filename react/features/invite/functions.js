@@ -51,7 +51,7 @@ export function getDialInNumbers(url: string): Promise<*> {
  * type items to invite.
  * @returns {Promise} - The promise created by the request.
  */
-function invitePeopleAndChatRooms( // eslint-disable-line max-params
+export function invitePeopleAndChatRooms( // eslint-disable-line max-params
         inviteServiceUrl: string,
         inviteUrl: string,
         jwt: string,
@@ -83,7 +83,7 @@ function invitePeopleAndChatRooms( // eslint-disable-line max-params
  * executed - "conferenceRooms" | "user" | "room".
  * @returns {Promise} - The promise created by the request.
  */
-export function searchDirectory( // eslint-disable-line max-params
+function searchDirectory( // eslint-disable-line max-params
         serviceUrl: string,
         jwt: string,
         text: string,
@@ -134,7 +134,7 @@ function isPhoneNumberRegex(): RegExp {
  * @param {string} dialOutAuthUrl - The endpoint to use for checking validity.
  * @returns {Promise} - The promise created by the request.
  */
-export function checkDialNumber(
+function checkDialNumber(
         dialNumber: string, dialOutAuthUrl: string): Promise<Object> {
     if (!dialOutAuthUrl) {
         // no auth url, let's say it is valid
@@ -163,7 +163,7 @@ export function checkDialNumber(
  * @private
  * @returns {string} A string with only numbers.
  */
-function getDigitsOnly(text: string = ''): string {
+function getDigitsOnly(text: string = '') {
     return text.replace(/\D/g, '');
 }
 
@@ -352,92 +352,6 @@ export type SendInvitesOptions = {
 };
 
 /**
- * Send invites for a list of items (may be a combination of users, rooms, phone
- * numbers, and video rooms).
- *
- * @param  {Array<Object>} invites - Items for which invites should be sent.
- * @param  {SendInvitesOptions} options - Options to use when sending the
- * provided invites.
- * @returns {Promise} Promise containing the list of invites that were not sent.
- */
-export function sendInvitesForItems(
-        invites: Array<Object>,
-        options: SendInvitesOptions
-): Promise<Array<Object>> {
-
-    const {
-        conference,
-        inviteServiceUrl,
-        inviteUrl,
-        inviteVideoRooms,
-        jwt
-    } = options;
-
-    let allInvitePromises = [];
-    let invitesLeftToSend = [ ...invites ];
-
-    // First create all promises for dialing out.
-    if (conference) {
-        const phoneNumbers = invitesLeftToSend.filter(
-            item => item.type === 'phone');
-
-        // For each number, dial out. On success, remove the number from
-        // {@link invitesLeftToSend}.
-        const phoneInvitePromises = phoneNumbers.map(item => {
-            const numberToInvite = getDigitsOnly(item.number);
-
-            return conference.dial(numberToInvite)
-                    .then(() => {
-                        invitesLeftToSend
-                            = invitesLeftToSend.filter(invite =>
-                                invite !== item);
-                    })
-                    .catch(error => logger.error(
-                        'Error inviting phone number:', error));
-
-        });
-
-        allInvitePromises = allInvitePromises.concat(phoneInvitePromises);
-    }
-
-    const usersAndRooms = invitesLeftToSend.filter(item =>
-        item.type === 'user' || item.type === 'room');
-
-    if (usersAndRooms.length) {
-        // Send a request to invite all the rooms and users. On success,
-        // filter all rooms and users from {@link invitesLeftToSend}.
-        const peopleInvitePromise = invitePeopleAndChatRooms(
-            inviteServiceUrl,
-            inviteUrl,
-            jwt,
-            usersAndRooms)
-            .then(() => {
-                invitesLeftToSend = invitesLeftToSend.filter(item =>
-                    item.type !== 'user' && item.type !== 'room');
-            })
-            .catch(error => logger.error(
-                'Error inviting people:', error));
-
-        allInvitePromises.push(peopleInvitePromise);
-    }
-
-    // Sipgw calls are fire and forget. Invite them to the conference
-    // then immediately remove them from {@link invitesLeftToSend}.
-    const vrooms = invitesLeftToSend.filter(item =>
-        item.type === 'videosipgw');
-
-    conference
-        && vrooms.length > 0
-        && inviteVideoRooms(conference, vrooms);
-
-    invitesLeftToSend = invitesLeftToSend.filter(item =>
-        item.type !== 'videosipgw');
-
-    return Promise.all(allInvitePromises)
-        .then(() => invitesLeftToSend);
-}
-
-/**
  * Determines if adding people is currently enabled.
  *
  * @param {boolean} state - Current state.
@@ -465,4 +379,54 @@ export function isDialOutEnabled(state: Object): boolean {
     return participant && participant.role === PARTICIPANT_ROLE.MODERATOR
                 && conference && conference.isSIPCallingSupported()
                 && (!enableUserRolesBasedOnToken || !isGuest);
+}
+
+/**
+ * Dials the passed phone numbers.
+ *
+ * @param {Array<Object>} inviteItems - The phone numbers.
+ * @param {JitsiConference} conference - The JitsiConference instance related to
+ * the call.
+ * @returns {Array<Promise>}
+ */
+export function invitePhoneNumbers(
+        inviteItems: Array<Object>,
+        conference: Object) {
+    const phoneNumbers = inviteItems.filter(
+        ({ item }) => item.type === 'phone');
+
+    // For each number, dial out. On success, remove the number from
+    // {@link invitesLeftToSend}.
+    return phoneNumbers.map(number => {
+        const numberToInvite = getDigitsOnly(number.item.number);
+
+        return conference.dial(numberToInvite);
+    });
+}
+
+
+/**
+ * Helper for determining how many of each type of user is being invited.
+ * Used for logging and sending analytics related to invites.
+ *
+ * @param {Array} inviteItems - An array with the invite items, as created
+ * in {@link _parseQueryResults}.
+ * @private
+ * @returns {Object} An object with keys as user types and values as the
+ * number of invites for that type.
+ */
+export function getInviteTypeCounts(inviteItems: Array<Object> = []) {
+    const inviteTypeCounts = {};
+
+    inviteItems.forEach(i => {
+        const type = i.item.type;
+
+        if (!inviteTypeCounts[type]) {
+            inviteTypeCounts[type] = 0;
+        }
+
+        inviteTypeCounts[type]++;
+    });
+
+    return inviteTypeCounts;
 }
