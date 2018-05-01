@@ -17,7 +17,6 @@
 package org.jitsi.meet.sdk;
 
 import android.content.Intent;
-import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -261,7 +260,9 @@ public class JitsiMeetActivity extends AppCompatActivity {
 
     @Override
     protected void onUserLeaveHint() {
-        JitsiMeetView.onUserLeaveHint();
+        if (view != null) {
+            view.onUserLeaveHint();
+        }
     }
 
     /**

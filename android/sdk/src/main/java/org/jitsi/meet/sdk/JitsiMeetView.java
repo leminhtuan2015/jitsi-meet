@@ -99,6 +99,26 @@ public class JitsiMeetView extends FrameLayout {
         return null;
     }
 
+    /**
+     * Finds a native React module for given class.
+     *
+     * @param nativeModuleClass the native module's class for which an instance
+     * is to be retrieved from the {@link #reactInstanceManager}.
+     * @param <T> the module's type.
+     * @return {@link NativeModule} instance for given interface type or
+     * {@code null} if no instance for this interface is available, or if
+     * {@link #reactInstanceManager} has not been initialized yet.
+     */
+    private static <T extends NativeModule> T getNativeModule(
+            Class<T> nativeModuleClass) {
+        ReactContext reactContext
+            = reactInstanceManager != null
+                ? reactInstanceManager.getCurrentReactContext() : null;
+
+        return reactContext != null
+                ? reactContext.getNativeModule(nativeModuleClass) : null;
+    }
+
     // XXX Strictly internal use only (at the time of this writing)!
     static ReactInstanceManager getReactInstanceManager() {
         return reactInstanceManager;
@@ -262,17 +282,6 @@ public class JitsiMeetView extends FrameLayout {
     }
 
     /**
-     * Activity lifecycle method which should be called from
-     * {@code Activity.onUserLeaveHint} so we can do the required internal
-     * processing.
-     *
-     * This is currently not mandatory.
-     */
-    public static void onUserLeaveHint() {
-        sendEvent("onUserLeaveHint", null);
-    }
-
-    /**
      * Starts a query for users to invite to the conference.  Results will be
      * returned through the {@link InviteSearchController.InviteSearchControllerDelegate#onReceiveResults(InviteSearchController, List, String)}
      * method.
@@ -325,6 +334,15 @@ public class JitsiMeetView extends FrameLayout {
      * Whether user invitation is enabled.
      */
     private boolean addPeopleEnabled;
+
+    /**
+     * Stores the current conference URL. Will have a value when the app is in
+     * a conference.
+     *
+     * Currently one thread writes and one thread reads, so it should be fine to
+     * have this field volatile without additional synchronization.
+     */
+    private volatile String conferenceUrl;
 
     /**
      * The default base {@code URL} used to join a conference when a partial URL
@@ -398,6 +416,16 @@ public class JitsiMeetView extends FrameLayout {
             reactRootView.unmountReactApplication();
             reactRootView = null;
         }
+    }
+
+    /**
+     * Retrieves the current conferences URL.
+     *
+     * @return a string with conference URL if the view is currently in
+     * a conference or {@code null} otherwise.
+     */
+    public String getCurrentConferenceUrl() {
+        return conferenceUrl;
     }
 
     /**
@@ -541,6 +569,43 @@ public class JitsiMeetView extends FrameLayout {
             urlObject.putString("url", urlString);
         }
         loadURLObject(urlObject);
+    }
+
+    /**
+     * Sets the current conference URL.
+     *
+     * @param conferenceUrl a string with new conference URL to set if the view
+     * is entering the conference or {@code null} if the view is no longer in
+     * the conference.
+     */
+    void setCurrentConferenceUrl(String conferenceUrl) {
+        this.conferenceUrl = conferenceUrl;
+    }
+
+    /**
+     * Activity lifecycle method which should be called from
+     * {@code Activity.onUserLeaveHint} so we can do the required internal
+     * processing.
+     *
+     * This is currently not mandatory, but if used will provide automatic
+     * handling of the picture in picture mode when user minimizes the app. It
+     * will be probably the most useful in case the app is using the welcome
+     * page.
+     */
+    public void onUserLeaveHint() {
+        if (getPictureInPictureEnabled() && conferenceUrl != null) {
+            PictureInPictureModule pipModule
+                = getNativeModule(PictureInPictureModule.class);
+
+            if (pipModule != null) {
+                try {
+                    pipModule.enterPictureInPicture();
+                } catch (RuntimeException exc) {
+                    Log.e(
+                        TAG, "onUserLeaveHint: failed to enter PiP mode", exc);
+                }
+            }
+        }
     }
 
     /**
